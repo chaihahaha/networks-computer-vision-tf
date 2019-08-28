@@ -12,10 +12,10 @@ result_dir = './result/'
 
 save_freq = 4
 train_pics = 789
-patches_num = 8
-batch_size = 8
-ckpt_freq = 1
-learning_rate = 1e-6
+patches_num = 2
+batch_size = 16
+ckpt_freq = 2
+learning_rate = 1e-5
 lastepoch = 0
 
 DEBUG = 0
@@ -42,7 +42,7 @@ def vgg16(rgb, num_classes=1000,
            global_pool=False):
 
     #start_time = time.time()
-    print("build model started")
+#     print("build model started")
     rgb_scaled = rgb * 255.0
 
     # Convert RGB to BGR
@@ -63,20 +63,20 @@ def vgg16(rgb, num_classes=1000,
         with slim.arg_scope([slim.conv2d, slim.fully_connected, slim.max_pool2d]):
             net1 = slim.repeat(bgr, 2, slim.conv2d, 64, [3, 3], scope='conv1')
             net2 = slim.max_pool2d(net1, [2, 2], scope='pool1')
-#             net3 = slim.repeat(net2, 2, slim.conv2d, 128, [3, 3], scope='conv2')
-#             net4 = slim.max_pool2d(net3, [2, 2], scope='pool2')
-#             net5 = slim.repeat(net4, 3, slim.conv2d, 256, [3, 3], scope='conv3')
-#             net6 = slim.max_pool2d(net5, [2, 2], scope='pool3')
-#             net7 = slim.repeat(net6, 3, slim.conv2d, 512, [3, 3], scope='conv4')
-#             net8 = slim.max_pool2d(net7, [2, 2], scope='pool4')
-#             net9 = slim.repeat(net8, 3, slim.conv2d, 512, [3, 3], scope='conv5')
-#             net = slim.max_pool2d(net, [2, 2], scope='pool5')
+            net3 = slim.repeat(net2, 2, slim.conv2d, 128, [3, 3], scope='conv2')
+            net4 = slim.max_pool2d(net3, [2, 2], scope='pool2')
+            net5 = slim.repeat(net4, 3, slim.conv2d, 256, [3, 3], scope='conv3')
+            net6 = slim.max_pool2d(net5, [2, 2], scope='pool3')
+            net7 = slim.repeat(net6, 3, slim.conv2d, 512, [3, 3], scope='conv4')
+            net8 = slim.max_pool2d(net7, [2, 2], scope='pool4')
+            net9 = slim.repeat(net8, 3, slim.conv2d, 512, [3, 3], scope='conv5')
+            net10 = slim.max_pool2d(net9, [2, 2], scope='pool5')
 
 #           # Use conv2d instead of fully_connected layers.
-#             net = slim.conv2d(net, 4096, [7, 7], padding=fc_conv_padding, scope='fc6')
+            net11 = slim.conv2d(net10, 4096, [7, 7], padding=fc_conv_padding, scope='fc6')
 #             net = slim.dropout(net, dropout_keep_prob, is_training=is_training,
 #                              scope='dropout6')
-#             net = slim.conv2d(net, 4096, [1, 1], scope='fc7')
+            net12 = slim.conv2d(net11, 4096, [1, 1], scope='fc7')
 #           # Convert end_points_collection into a end_point dict.
 #             net = slim.dropout(net, dropout_keep_prob, is_training=is_training,
 #                                scope='dropout7')
@@ -84,7 +84,7 @@ def vgg16(rgb, num_classes=1000,
 #                               activation_fn=None,
 #                               normalizer_fn=None,
 #                               scope='fc8')
-    return net2
+    return net12
     
 def cov(x,y):
     mshape = x.shape
@@ -113,9 +113,10 @@ def generate_batch(patches_num,dark_img,gt_img):
     ps = 224
     
     img_feed_gt = tf.image.resize_images(gt_img, [2*H, 2*W])
+
     img_feed_in = dark_img
-    print(img_feed_gt)
-    print(img_feed_in)
+#     print(img_feed_gt)
+#     print(img_feed_in)
 
     input_patches = []
     gt_patches = []
@@ -147,8 +148,10 @@ def generate_batch(patches_num,dark_img,gt_img):
         #input_patch = tf.minimum(input_patch, 1.0)
         input_patches.append(input_patch)
         gt_patches.append(gt_patch)
+    input_patches = tf.concat(input_patches,0)
+    gt_patches = tf.concat(gt_patches,0)
     
-    return tf.concat(input_patches,0),tf.concat(gt_patches,0)
+    return input_patches, gt_patches
     
 
 
@@ -170,6 +173,8 @@ def upsample_and_concat(x1, x2, output_channels, in_channels):
 
 
 def network(input, scope="sid"):
+    H = tf.shape(input)[1]
+    W = tf.shape(input)[2]
     with tf.variable_scope(scope, "sid", reuse=tf.AUTO_REUSE) as sc:           # 设定一个子网络的scope，便于之后指定需要训练的变量和导入权重
         conv1 = slim.conv2d(input, 32, [3, 3], rate=1, activation_fn=lrelu, scope='g_conv1_1')
         conv1 = slim.conv2d(conv1, 32, [3, 3], rate=1, activation_fn=lrelu, scope='g_conv1_2')
@@ -208,14 +213,22 @@ def network(input, scope="sid"):
 
         conv10 = slim.conv2d(conv9, 12, [1, 1], rate=1, activation_fn=None, scope='g_conv10')
         out = tf.depth_to_space(conv10, 2)
+        inputx2 = tf.image.resize_images(input, [2*H, 2*W])
+        out = out + inputx2
+        out = tf.minimum(tf.maximum(out, -1.0), 1.0)
 
 #     ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
 #     if ckpt:
 #         print('loaded ' + ckpt.model_checkpoint_path)
 #         tf.contrib.framework.init_from_checkpoint(ckpt.model_checkpoint_path, {"sid/":"sid/"})
     return out
-
-
+def distance(t1, t2):
+    t1_len = tf.sqrt(tf.reduce_mean(t1*t1, [1,2,3]))
+    t2_len = tf.sqrt(tf.reduce_mean(t2*t2, [1,2,3]))
+    products = tf.reduce_mean(t1*t2, [1,2,3])
+#     print(products)
+    return 1-products/(t1_len*t2_len)
+    
 
 
 sess = tf.Session()
@@ -224,15 +237,20 @@ in_image = tf.placeholder(tf.float32, [None, None, None, 3])
 gt_image = tf.placeholder(tf.float32, [None, None, None, 3])
 input_patches, gt_patches = generate_batch(patches_num, in_image, gt_image)
 output_patches = network(input_patches)
-
-
+out_mean_delta = tf.reduce_mean(output_patches)
+out_max_delta = tf.reduce_max(output_patches)
+out_min_delta = tf.reduce_min(output_patches)
 out_image = network(in_image[0:1,:,:,:])[0,:,:,:]
 vgg_o = vgg16(output_patches)
 vgg_g = vgg16(gt_patches)
-loss0 = tf.reduce_mean(tf.abs(vgg_o[0] - vgg_g[0]))
+
+o_debug = tf.reduce_mean(output_patches)
+i_debug = tf.reduce_mean(input_patches)
+g_debug = tf.reduce_mean(gt_patches)
 # loss1 = tf.reduce_mean(tf.abs(vgg_o[1] - vgg_g[1]))
 # loss2 = tf.reduce_mean(tf.abs(vgg_o[2] - vgg_g[2]))
-G_loss = loss0 #+ loss1 + loss2 #+ tf.reduce_mean(tf.abs(output_patches - gt_patches))
+loss_dis = distance(vgg_o, vgg_g)
+G_loss = tf.reduce_mean(loss_dis) #+ loss1 + loss2 #+ tf.reduce_mean(tf.abs(output_patches - gt_patches))
 
 weight = tf.reduce_mean([v for v in tf.trainable_variables() if v.name == "sid/g_conv1_1/weights:0"])
 
@@ -266,8 +284,8 @@ if not os.path.isdir(result_dir):
     
 for epoch in range(lastepoch, 4001):
     cnt = 0
-    if epoch > 2000:
-        learning_rate = 1e-7
+    if epoch > 200:
+        learning_rate = 1e-5
     batches_num = train_pics//batch_size
     for batch in range(batches_num):#np.random.permutation(train_pics):
         st = time.time()
@@ -285,16 +303,16 @@ for epoch in range(lastepoch, 4001):
 #         print(dark_img.shape)
 #         print(gt_img.shape)
 
-        _, G_current, output , weight_f, los0= sess.run([G_opt, G_loss, out_image, weight, loss0],
+        _, G_current, output , weight_f, o_d , i_d, g_d, o_mdt, o_ma_d, o_mi_d= sess.run([G_opt, G_loss, out_image, weight, o_debug, i_debug, g_debug, out_mean_delta, out_max_delta, out_min_delta],
                                 feed_dict={in_image: dark_img, gt_image:gt_img, lr: learning_rate})
 
         output = np.minimum(np.maximum(output, 0), 1)
         g_loss[batch] = G_current
 
-        print("%d %d Loss=%.5f Time=%.5f Weight=%.5f Loss0=%.5f" % (epoch, cnt, np.mean(g_loss[np.where(g_loss)]), time.time() - st, weight_f*1e3, los0))
+        print("%d %d Loss=%.5f Time=%.5f Weight=%.5f LossCurrent=%.5f OutputMean=%.5f InputMean=%.5f GTMean=%.5f DeltaMean=%.5f Max=%.2f Min=%.2f" % (epoch, cnt, np.mean(g_loss[np.where(g_loss)]), time.time() - st, weight_f*1e3, G_current, o_d, i_d, g_d, o_mdt, o_ma_d, o_mi_d))
 
     if epoch % save_freq == 0:
-        print("saving result jpg")
+        print("saving result " + result_dir + '%04d/%05d_00_train.jpg' % (epoch, batch))
         if not os.path.isdir(result_dir + '%04d' % epoch):
             os.makedirs(result_dir + '%04d' % epoch)
         gt_imgx2 = resize(gt_img[0,:,:,:], (dark_img.shape[1]*2,dark_img.shape[2]*2))
@@ -304,6 +322,7 @@ for epoch in range(lastepoch, 4001):
             result_dir + '%04d/%05d_00_train.jpg' % (epoch, batch))
             
     if epoch % ckpt_freq == 0:
+        print("saving checkpoint...")
         saver_sid.save(sess, checkpoint_dir + 'model_'+str(np.mean(g_loss[np.where(g_loss)]))+'.ckpt')
 
 
