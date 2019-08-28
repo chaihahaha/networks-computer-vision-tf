@@ -12,8 +12,8 @@ result_dir = './result/'
 
 save_freq = 4
 train_pics = 789
-patches_num = 10
-batch_size = 10
+patches_num = 8
+batch_size = 8
 ckpt_freq = 1
 learning_rate = 1e-6
 lastepoch = 0
@@ -63,16 +63,13 @@ def vgg16(rgb, num_classes=1000,
         with slim.arg_scope([slim.conv2d, slim.fully_connected, slim.max_pool2d]):
             net1 = slim.repeat(bgr, 2, slim.conv2d, 64, [3, 3], scope='conv1')
             net2 = slim.max_pool2d(net1, [2, 2], scope='pool1')
-            net3 = slim.repeat(net2, 2, slim.conv2d, 128, [3, 3], scope='conv2')
-            net4 = slim.max_pool2d(net3, [2, 2], scope='pool2')
-            net5 = slim.repeat(net4, 3, slim.conv2d, 256, [3, 3], scope='conv3')
-            net6 = slim.max_pool2d(net5, [2, 2], scope='pool3')
-            net7 = slim.repeat(net6, 3, slim.conv2d, 512, [3, 3], scope='conv4')
-            net8 = slim.max_pool2d(net7, [2, 2], scope='pool4')
-            net9 = slim.repeat(net8, 3, slim.conv2d, 512, [3, 3], scope='conv5')
-            
-            
-            
+#             net3 = slim.repeat(net2, 2, slim.conv2d, 128, [3, 3], scope='conv2')
+#             net4 = slim.max_pool2d(net3, [2, 2], scope='pool2')
+#             net5 = slim.repeat(net4, 3, slim.conv2d, 256, [3, 3], scope='conv3')
+#             net6 = slim.max_pool2d(net5, [2, 2], scope='pool3')
+#             net7 = slim.repeat(net6, 3, slim.conv2d, 512, [3, 3], scope='conv4')
+#             net8 = slim.max_pool2d(net7, [2, 2], scope='pool4')
+#             net9 = slim.repeat(net8, 3, slim.conv2d, 512, [3, 3], scope='conv5')
 #             net = slim.max_pool2d(net, [2, 2], scope='pool5')
 
 #           # Use conv2d instead of fully_connected layers.
@@ -87,7 +84,7 @@ def vgg16(rgb, num_classes=1000,
 #                               activation_fn=None,
 #                               normalizer_fn=None,
 #                               scope='fc8')
-    return net2, net5, net9
+    return net2
     
 def cov(x,y):
     mshape = x.shape
@@ -110,30 +107,28 @@ def sobel_loss(img1,img2):
     return tf.reduce_mean(tf.math.abs(edge_bin_1-edge_bin_2))
 
 def generate_batch(patches_num,dark_img,gt_img):
-
-    W = tf.shape(dark_img)[1]
-    H = tf.shape(dark_img)[2]
+    B = tf.shape(dark_img)[0]
+    H = tf.shape(dark_img)[1]
+    W = tf.shape(dark_img)[2]
     ps = 224
     
-
-    #img_feed_in = tf.reshape(dark_img, [1, W, H, 3])
-    #img_feed_gt = tf.reshape(gt_img, [1, 2 * W, 2 * H, 3])
+    img_feed_gt = tf.image.resize_images(gt_img, [2*H, 2*W])
     img_feed_in = dark_img
-    img_feed_gt = gt_img
-    
+    print(img_feed_gt)
+    print(img_feed_in)
 
     input_patches = []
     gt_patches = []
     # random crop flip to generate patches
     for i in range(patches_num):
-        xx = tf.random_uniform(dtype=tf.int32, minval=0, maxval=W - ps, shape=[1])
-        yy = tf.random_uniform(dtype=tf.int32, minval=0, maxval=H - ps, shape=[1])
+        xx = tf.random_uniform(dtype=tf.int32, minval=0, maxval=H - ps, shape=[1])
+        yy = tf.random_uniform(dtype=tf.int32, minval=0, maxval=W - ps, shape=[1])
 
-        input_patch = tf.slice(img_feed_in, [0, xx[0], yy[0], 0], [1, ps, ps, 3])
+        input_patch = tf.slice(img_feed_in, [0, xx[0], yy[0], 0], [B, ps, ps, 3])
 
         #input_patch = img_feed_in[:, xx:xx + ps, yy:yy + ps, :]
         #gt_patch = img_feed_gt[:, xx * 2:xx * 2 + ps * 2, yy * 2:yy * 2 + ps * 2, :]
-        gt_patch = tf.slice(img_feed_gt, [0, 2 * xx[0], 2 * yy[0], 0], [1, 2 * ps, 2 * ps, 3])
+        gt_patch = tf.slice(img_feed_gt, [0, 2 * xx[0], 2 * yy[0], 0], [B, 2 * ps, 2 * ps, 3])
 
 
         input_patch, gt_patch = tf.cond(
@@ -235,8 +230,8 @@ out_image = network(in_image[0:1,:,:,:])[0,:,:,:]
 vgg_o = vgg16(output_patches)
 vgg_g = vgg16(gt_patches)
 loss0 = tf.reduce_mean(tf.abs(vgg_o[0] - vgg_g[0]))
-loss1 = tf.reduce_mean(tf.abs(vgg_o[1] - vgg_g[1]))
-loss2 = tf.reduce_mean(tf.abs(vgg_o[2] - vgg_g[2]))
+# loss1 = tf.reduce_mean(tf.abs(vgg_o[1] - vgg_g[1]))
+# loss2 = tf.reduce_mean(tf.abs(vgg_o[2] - vgg_g[2]))
 G_loss = loss0 #+ loss1 + loss2 #+ tf.reduce_mean(tf.abs(output_patches - gt_patches))
 
 weight = tf.reduce_mean([v for v in tf.trainable_variables() if v.name == "sid/g_conv1_1/weights:0"])
@@ -283,18 +278,20 @@ for epoch in range(lastepoch, 4001):
         gt_img = []
         for ind in np.random.permutation(batch_size):
             dark_img.append(plt.imread("Low/low"+"{0:05}".format((batch*batch_size + ind)%train_pics + 1)+".png")[np.newaxis, :,:,:])
-            gt_tmp = plt.imread("Normal/normal"+"{0:05}".format((batch*batch_size + ind)%train_pics + 1)+".png")
-            gt_img.append(resize(gt_tmp, (gt_tmp.shape[0]*2,gt_tmp.shape[1]*2))[np.newaxis, :,:,:])
+            gt_img.append(plt.imread("Normal/normal"+"{0:05}".format((batch*batch_size + ind)%train_pics + 1)+".png")[np.newaxis, :,:,:])
         dark_img = np.concatenate(dark_img, 0)
         gt_img = np.concatenate(gt_img, 0)
+#         print("np dark gt shape")
+#         print(dark_img.shape)
+#         print(gt_img.shape)
 
-        _, G_current, output , weight_f, los0, los1, los2= sess.run([G_opt, G_loss, out_image, weight, loss0, loss1, loss2],
+        _, G_current, output , weight_f, los0= sess.run([G_opt, G_loss, out_image, weight, loss0],
                                 feed_dict={in_image: dark_img, gt_image:gt_img, lr: learning_rate})
 
         output = np.minimum(np.maximum(output, 0), 1)
         g_loss[batch] = G_current
 
-        print("%d %d Loss=%.5f Time=%.5f Weight=%.5f Loss0=%.5f Loss1=%.5f Loss2=%.5f" % (epoch, cnt, np.mean(g_loss[np.where(g_loss)]), time.time() - st, weight_f*1e3, los0, los1, los2))
+        print("%d %d Loss=%.5f Time=%.5f Weight=%.5f Loss0=%.5f" % (epoch, cnt, np.mean(g_loss[np.where(g_loss)]), time.time() - st, weight_f*1e3, los0))
 
     if epoch % save_freq == 0:
         print("saving result jpg")
