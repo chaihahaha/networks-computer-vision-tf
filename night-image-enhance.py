@@ -12,6 +12,7 @@ result_dir = './result/'
 
 save_freq = 4
 train_pics = 789
+patches_num = 10
 batch_size = 10
 ckpt_freq = 1
 learning_rate = 1e-6
@@ -108,23 +109,23 @@ def sobel_loss(img1,img2):
     edge_bin_2 = tf.cast(edge_2>m_2, tf.float32)
     return tf.reduce_mean(tf.math.abs(edge_bin_1-edge_bin_2))
 
-def generate_batch(batch_size,dark_img,gt_img):
+def generate_batch(patches_num,dark_img,gt_img):
 
-    W = tf.shape(dark_img)[0]
-    H = tf.shape(dark_img)[1]
+    W = tf.shape(dark_img)[1]
+    H = tf.shape(dark_img)[2]
     ps = 224
     
 
     #img_feed_in = tf.reshape(dark_img, [1, W, H, 3])
     #img_feed_gt = tf.reshape(gt_img, [1, 2 * W, 2 * H, 3])
-    img_feed_in = tf.expand_dims(dark_img, 0)
-    img_feed_gt = tf.expand_dims(gt_img, 0)
+    img_feed_in = dark_img
+    img_feed_gt = gt_img
     
 
     input_patches = []
     gt_patches = []
     # random crop flip to generate patches
-    for i in range(batch_size):
+    for i in range(patches_num):
         xx = tf.random_uniform(dtype=tf.int32, minval=0, maxval=W - ps, shape=[1])
         yy = tf.random_uniform(dtype=tf.int32, minval=0, maxval=H - ps, shape=[1])
 
@@ -224,13 +225,13 @@ def network(input, scope="sid"):
 
 sess = tf.Session()
 
-in_image = tf.placeholder(tf.float32, [None, None, 3])
-gt_image = tf.placeholder(tf.float32, [None, None, 3])
-input_patches, gt_patches = generate_batch(batch_size, in_image, gt_image)
+in_image = tf.placeholder(tf.float32, [None, None, None, 3])
+gt_image = tf.placeholder(tf.float32, [None, None, None, 3])
+input_patches, gt_patches = generate_batch(patches_num, in_image, gt_image)
 output_patches = network(input_patches)
 
-in_image_4d = tf.expand_dims(in_image, 0)
-out_image = network(in_image_4d)
+
+out_image = network(in_image[0:1,:,:,:])[0,:,:,:]
 vgg_o = vgg16(output_patches)
 vgg_g = vgg16(gt_patches)
 loss0 = tf.reduce_mean(tf.abs(vgg_o[0] - vgg_g[0]))
@@ -272,21 +273,26 @@ for epoch in range(lastepoch, 4001):
     cnt = 0
     if epoch > 2000:
         learning_rate = 1e-7
-    for ind in range(train_pics):#np.random.permutation(train_pics):
+    batches_num = train_pics//batch_size
+    for batch in range(batches_num):#np.random.permutation(train_pics):
         st = time.time()
         cnt += 1
         
 #         choice = np.random.randint(1, train_pics + 1)
-        dark_img = plt.imread("Low/low"+"{0:05}".format(ind+1)+".png")
-        gt_tmp = plt.imread("Normal/normal"+"{0:05}".format(ind+1)+".png")
-        gt_img = resize(gt_tmp, (gt_tmp.shape[0]*2,gt_tmp.shape[1]*2))
-
+        dark_img = []
+        gt_img = []
+        for ind in np.random.permutation(batch_size):
+            dark_img.append(plt.imread("Low/low"+"{0:05}".format((batch*batch_size + ind)%train_pics + 1)+".png")[np.newaxis, :,:,:])
+            gt_tmp = plt.imread("Normal/normal"+"{0:05}".format((batch*batch_size + ind)%train_pics + 1)+".png")
+            gt_img.append(resize(gt_tmp, (gt_tmp.shape[0]*2,gt_tmp.shape[1]*2))[np.newaxis, :,:,:])
+        dark_img = np.concatenate(dark_img, 0)
+        gt_img = np.concatenate(gt_img, 0)
 
         _, G_current, output , weight_f, los0, los1, los2= sess.run([G_opt, G_loss, out_image, weight, loss0, loss1, loss2],
                                 feed_dict={in_image: dark_img, gt_image:gt_img, lr: learning_rate})
 
         output = np.minimum(np.maximum(output, 0), 1)
-        g_loss[ind] = G_current
+        g_loss[batch] = G_current
 
         print("%d %d Loss=%.5f Time=%.5f Weight=%.5f Loss0=%.5f Loss1=%.5f Loss2=%.5f" % (epoch, cnt, np.mean(g_loss[np.where(g_loss)]), time.time() - st, weight_f*1e3, los0, los1, los2))
 
@@ -295,9 +301,9 @@ for epoch in range(lastepoch, 4001):
         if not os.path.isdir(result_dir + '%04d' % epoch):
             os.makedirs(result_dir + '%04d' % epoch)
         input_pth_tmp = input_patches[0,:,:,:]
-        temp = np.concatenate((gt_img, output[0, :, :, :], resize(dark_img, (dark_img.shape[0]*2,dark_img.shape[1]*2))), axis=1)
+        temp = np.concatenate((gt_img[0,:,:,:], output, resize(dark_img[0,:,:,:], (dark_img.shape[1]*2,dark_img.shape[2]*2))), axis=1)
         scipy.misc.toimage(temp * 255, high=255, low=0, cmin=0, cmax=255).save(
-            result_dir + '%04d/%05d_00_train.jpg' % (epoch, ind))
+            result_dir + '%04d/%05d_00_train.jpg' % (epoch, batch))
             
     if epoch % ckpt_freq == 0:
         saver_sid.save(sess, checkpoint_dir + 'model_'+str(np.mean(g_loss[np.where(g_loss)]))+'.ckpt')
