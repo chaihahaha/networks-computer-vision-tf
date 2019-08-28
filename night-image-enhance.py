@@ -298,7 +298,9 @@ for epoch in range(lastepoch, 4001):
         if not os.path.isdir(result_dir + '%04d' % epoch):
             os.makedirs(result_dir + '%04d' % epoch)
         input_pth_tmp = input_patches[0,:,:,:]
-        temp = np.concatenate((gt_img[0,:,:,:], output, resize(dark_img[0,:,:,:], (dark_img.shape[1]*2,dark_img.shape[2]*2))), axis=1)
+        gt_imgx2 = resize(gt_img[0,:,:,:], (dark_img.shape[1]*2,dark_img.shape[2]*2))
+        dark_imgx2 = resize(dark_img[0,:,:,:], (dark_img.shape[1]*2,dark_img.shape[2]*2))
+        temp = np.concatenate((input_pth_tmp, output, dark_imgx2), axis=1)
         scipy.misc.toimage(temp * 255, high=255, low=0, cmin=0, cmax=255).save(
             result_dir + '%04d/%05d_00_train.jpg' % (epoch, batch))
             
