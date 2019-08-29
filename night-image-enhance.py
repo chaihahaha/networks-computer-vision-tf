@@ -19,7 +19,7 @@ gt_img_dir = './images_gt/'
 save_freq = 4
 train_pics = 789
 patches_num = 2
-batch_size = 56
+batch_size = 32  # maximum 32
 ckpt_freq = 4
 learning_rate = 1e-5
 lastepoch = 0
@@ -341,7 +341,7 @@ for epoch in range(lastepoch, 4001):
 #         print(dark_img.shape)
 #         print(gt_img.shape)
         
-        _, G_current, output , weight_f, o_d , i_d, g_d, o_ma, o_mi, o_img, d_i= sess.run([G_opt, G_loss, out_image, weight, o_debug, i_debug, g_debug, out_max, out_min, o_img_debug, debug_in],
+        _, G_current, output , weight_f, o_d , i_d, g_d, o_ma, o_mi, o_img, d_i, gt_img, dark_img= sess.run([G_opt, G_loss, out_image, weight, o_debug, i_debug, g_debug, out_max, out_min, o_img_debug, debug_in, gt_image, in_image],
                                 feed_dict={ lr: learning_rate})
 
         output = np.minimum(np.maximum(output, 0), 1)
