@@ -13,7 +13,7 @@ result_dir = './result/'
 save_freq = 4
 train_pics = 789
 patches_num = 2
-batch_size = 16
+batch_size = 4
 ckpt_freq = 2
 learning_rate = 1e-5
 lastepoch = 0
@@ -171,11 +171,19 @@ def upsample_and_concat(x1, x2, output_channels, in_channels):
 
     return deconv_output
 
+def regress_continuous_fn(x):
+    M1 = tf.get_variable("fnM1", shape=[255, 3])
+    M2 = tf.get_variable("fnM2", shape=[255, 3])
+    hidden = tf.einsum("kc,nhwc->knhwc",M1, x)
+    hidden = tf.nn.relu(hidden)
+    hidden = tf.einsum("kc,knhwc->nhwc", M2, hidden)
+    return hidden
 
 def network(input, scope="sid"):
     H = tf.shape(input)[1]
     W = tf.shape(input)[2]
     with tf.variable_scope(scope, "sid", reuse=tf.AUTO_REUSE) as sc:           # 设定一个子网络的scope，便于之后指定需要训练的变量和导入权重
+        
         conv1 = slim.conv2d(input, 32, [3, 3], rate=1, activation_fn=lrelu, scope='g_conv1_1')
         conv1 = slim.conv2d(conv1, 32, [3, 3], rate=1, activation_fn=lrelu, scope='g_conv1_2')
         pool1 = slim.max_pool2d(conv1, [2, 2], padding='SAME')
@@ -213,8 +221,10 @@ def network(input, scope="sid"):
 
         conv10 = slim.conv2d(conv9, 12, [1, 1], rate=1, activation_fn=None, scope='g_conv10')
         out = tf.depth_to_space(conv10, 2)
+        
         inputx2 = tf.image.resize_images(input, [2*H, 2*W])
         out = out + inputx2
+        out = regress_continuous_fn(out)
         out = tf.minimum(tf.maximum(out, -1.0), 1.0)
 
 #     ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
