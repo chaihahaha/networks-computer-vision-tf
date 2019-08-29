@@ -192,9 +192,10 @@ def upsample_and_concat(x1, x2, output_channels, in_channels):
 def hist_stretching_layer(x, k, channels):
     with tf.variable_scope("hist_stretch", "hist_stretch", reuse=tf.AUTO_REUSE) as sc:
         M = tf.get_variable("fnM", shape=[k, channels])
+        b = tf.get_variable("b",shape=[batch_size*patches_num,1,1])
         result = []
         for c in range(channels):
-            result.append(M[0, c] * x[:,:,:,c])
+            result.append(M[0, c] * x[:,:,:,c] + b)
             for i in range(1, k):
                 result[c] += M[i, c] * x[:,:,:,c]**(i+1)
     return tf.stack(result, axis=3)
