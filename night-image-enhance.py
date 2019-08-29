@@ -13,7 +13,7 @@ result_dir = './result/'
 save_freq = 4
 train_pics = 789
 patches_num = 2
-batch_size = 4
+batch_size = 16
 ckpt_freq = 2
 learning_rate = 1e-5
 lastepoch = 0
@@ -171,9 +171,9 @@ def upsample_and_concat(x1, x2, output_channels, in_channels):
 
     return deconv_output
 
-def regress_continuous_fn(x):
-    M1 = tf.get_variable("fnM1", shape=[255, 3])
-    M2 = tf.get_variable("fnM2", shape=[255, 3])
+def hist_stretching_layer(x, anchor, channels):
+    M1 = tf.get_variable("fnM1", shape=[anchor, channels])
+    M2 = tf.get_variable("fnM2", shape=[anchor, channels])
     hidden = tf.einsum("kc,nhwc->knhwc",M1, x)
     hidden = tf.nn.relu(hidden)
     hidden = tf.einsum("kc,knhwc->nhwc", M2, hidden)
@@ -224,7 +224,7 @@ def network(input, scope="sid"):
         
         inputx2 = tf.image.resize_images(input, [2*H, 2*W])
         out = out + inputx2
-        out = regress_continuous_fn(out)
+        out = hist_stretching_layer(out, 20, 3)
         out = tf.minimum(tf.maximum(out, -1.0), 1.0)
 
 #     ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
