@@ -222,12 +222,25 @@ def network(input, scope="sid"):
 #         print('loaded ' + ckpt.model_checkpoint_path)
 #         tf.contrib.framework.init_from_checkpoint(ckpt.model_checkpoint_path, {"sid/":"sid/"})
     return out
-def distance(t1, t2):
+def cosine_distance(t1, t2):
     t1_len = tf.sqrt(tf.reduce_mean(t1*t1, [1,2,3]))
     t2_len = tf.sqrt(tf.reduce_mean(t2*t2, [1,2,3]))
     products = tf.reduce_mean(t1*t2, [1,2,3])
-#     print(products)
-    return 1-products/(t1_len*t2_len)
+    cosine_dis = 1-products/(t1_len*t2_len)
+    return cosine_dis
+def variance_distance(t1, t2):
+    t1_len = tf.sqrt(tf.reduce_mean(t1*t1, [1,2,3]))
+    t2_len = tf.sqrt(tf.reduce_mean(t2*t2, [1,2,3]))
+    t1_mean = tf.reduce_mean(t1, [1,2,3])
+    t2_mean = tf.reduce_mean(t2, [1,2,3])
+    t1_var = t1_len**2 - t1_mean**2
+    t2_var = t2_len**2 - t2_mean**2
+    variance_dis = tf.abs(t1_var - t2_var)
+    return variance_dis
+def distance(t1, t2):
+    k = 1.0
+    delta = 3.0
+    return  tf.reduce_mean(tf.exp(k * tf.abs(t1 - t2) + delta) - tf.exp(delta) , [1,2,3])
     
 
 
@@ -237,9 +250,8 @@ in_image = tf.placeholder(tf.float32, [None, None, None, 3])
 gt_image = tf.placeholder(tf.float32, [None, None, None, 3])
 input_patches, gt_patches = generate_batch(patches_num, in_image, gt_image)
 output_patches = network(input_patches)
-out_mean_delta = tf.reduce_mean(output_patches)
-out_max_delta = tf.reduce_max(output_patches)
-out_min_delta = tf.reduce_min(output_patches)
+out_max = tf.reduce_max(output_patches)
+out_min = tf.reduce_min(output_patches)
 out_image = network(in_image[0:1,:,:,:])[0,:,:,:]
 vgg_o = vgg16(output_patches)
 vgg_g = vgg16(gt_patches)
@@ -303,13 +315,13 @@ for epoch in range(lastepoch, 4001):
 #         print(dark_img.shape)
 #         print(gt_img.shape)
 
-        _, G_current, output , weight_f, o_d , i_d, g_d, o_mdt, o_ma_d, o_mi_d= sess.run([G_opt, G_loss, out_image, weight, o_debug, i_debug, g_debug, out_mean_delta, out_max_delta, out_min_delta],
+        _, G_current, output , weight_f, o_d , i_d, g_d, o_ma, o_mi= sess.run([G_opt, G_loss, out_image, weight, o_debug, i_debug, g_debug, out_max, out_min],
                                 feed_dict={in_image: dark_img, gt_image:gt_img, lr: learning_rate})
 
         output = np.minimum(np.maximum(output, 0), 1)
         g_loss[batch] = G_current
 
-        print("%d %d Loss=%.5f Time=%.5f Weight=%.5f LossCurrent=%.5f OutputMean=%.5f InputMean=%.5f GTMean=%.5f DeltaMean=%.5f Max=%.2f Min=%.2f" % (epoch, cnt, np.mean(g_loss[np.where(g_loss)]), time.time() - st, weight_f*1e3, G_current, o_d, i_d, g_d, o_mdt, o_ma_d, o_mi_d))
+        print("%d %d Loss=%.5f Time=%.5f Weight=%.5f LossCurrent=%.5f OutputMean=%.5f InputMean=%.5f GTMean=%.5f OMax=%.2f OMin=%.2f" % (epoch, cnt, np.mean(g_loss[np.where(g_loss)]), time.time() - st, weight_f*1e3, G_current, o_d, i_d, g_d, o_ma, o_mi))
 
     if epoch % save_freq == 0:
         print("saving result " + result_dir + '%04d/%05d_00_train.jpg' % (epoch, batch))
