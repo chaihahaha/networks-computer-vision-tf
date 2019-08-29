@@ -6,16 +6,22 @@ import os
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 import time
+import nvidia.dali.ops as ops
+import nvidia.dali.types as types
+from nvidia.dali.pipeline import Pipeline
+import nvidia.dali.plugin.tf as dali_tf
 
 checkpoint_dir = './checkpoint/'
 result_dir = './result/'
+dark_img_dir = './images_dark/'
+gt_img_dir = './images_gt/'
 
 save_freq = 4
 train_pics = 789
 patches_num = 2
-batch_size = 32
-ckpt_freq = 2
-learning_rate = 1e-4
+batch_size = 56
+ckpt_freq = 4
+learning_rate = 1e-5
 lastepoch = 0
 
 DEBUG = 0
@@ -24,6 +30,18 @@ if DEBUG == 1:
 
 VGG_MEAN = [103.939, 116.779, 123.68]
 
+class SimplePipeline(Pipeline):
+    def __init__(self, batch_size, num_threads, device_id, img_dir):
+        super(SimplePipeline, self).__init__(batch_size, num_threads, device_id, seed = 12)
+        self.input = ops.FileReader(file_root = img_dir)
+        # instead of path to file directory file with pairs image_name image_label_value can be provided
+        # self.input = ops.FileReader(file_root = image_dir, file_list = image_dir + '/file_list.txt')
+        self.decode = ops.ImageDecoder(device = 'mixed', output_type = types.RGB)
+    def define_graph(self):
+        pngs, _ = self.input()
+        images = self.decode(pngs)
+        return images
+    
 def initialize_uninitialized(sess):
     global_vars          = tf.global_variables()
     is_not_initialized   = sess.run([tf.is_variable_initialized(var) for var in global_vars])
@@ -175,9 +193,9 @@ def hist_stretching_layer(x, k, channels):
     M = tf.get_variable("fnM", shape=[k, channels])
     result = []
     for c in range(channels):
-        result.append(x[:,:,:,c])
-        for i in range(k):
-            result[c] += M[i, c] * x[:,:,:,c]**(i+2)
+        result.append(M[0, c] * x[:,:,:,c])
+        for i in range(1, k):
+            result[c] += M[i, c] * x[:,:,:,c]**(i+1)
     return tf.stack(result, axis=3)
 
 def network(input, scope="sid"):
@@ -254,8 +272,16 @@ def distance(t1, t2):
 
 sess = tf.Session()
 
-in_image = tf.placeholder(tf.float32, [None, None, None, 3])
-gt_image = tf.placeholder(tf.float32, [None, None, None, 3])
+dark_pipe = SimplePipeline(batch_size, 1, 0, dark_img_dir)
+gt_pipe = SimplePipeline(batch_size, 1, 0, gt_img_dir)
+daliop = dali_tf.DALIIterator()
+in_image= daliop(pipeline = dark_pipe, shapes=[[batch_size,400,600,3]],dtypes=[tf.uint8])
+in_image=tf.to_float(in_image[0])/255.0
+
+gt_image= daliop(pipeline = gt_pipe, shapes=[[batch_size,400,600,3]],dtypes=[tf.uint8])
+gt_image=tf.to_float(gt_image[0])/255.0
+
+
 input_patches, gt_patches = generate_batch(patches_num, in_image, gt_image)
 output_patches = network(input_patches)
 out_max = tf.reduce_max(output_patches)
@@ -298,30 +324,25 @@ if not os.path.isdir(result_dir):
     os.makedirs(result_dir)
 
 
-    
+
 for epoch in range(lastepoch, 4001):
     cnt = 0
     if epoch > 200:
-        learning_rate = 1e-5
+        learning_rate = 1e-6
     batches_num = train_pics//batch_size
     for batch in range(batches_num):#np.random.permutation(train_pics):
         st = time.time()
         cnt += 1
         
 #         choice = np.random.randint(1, train_pics + 1)
-        dark_img = []
-        gt_img = []
-        for ind in np.random.permutation(batch_size):
-            dark_img.append(plt.imread("Low/low"+"{0:05}".format((batch*batch_size + ind)%train_pics + 1)+".png")[np.newaxis, :,:,:])
-            gt_img.append(plt.imread("Normal/normal"+"{0:05}".format((batch*batch_size + ind)%train_pics + 1)+".png")[np.newaxis, :,:,:])
-        dark_img = np.concatenate(dark_img, 0)
-        gt_img = np.concatenate(gt_img, 0)
+
+        
 #         print("np dark gt shape")
 #         print(dark_img.shape)
 #         print(gt_img.shape)
-
+        
         _, G_current, output , weight_f, o_d , i_d, g_d, o_ma, o_mi, o_img, d_i= sess.run([G_opt, G_loss, out_image, weight, o_debug, i_debug, g_debug, out_max, out_min, o_img_debug, debug_in],
-                                feed_dict={in_image: dark_img, gt_image:gt_img, lr: learning_rate})
+                                feed_dict={ lr: learning_rate})
 
         output = np.minimum(np.maximum(output, 0), 1)
         g_loss[batch] = G_current
