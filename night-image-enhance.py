@@ -13,9 +13,9 @@ result_dir = './result/'
 save_freq = 4
 train_pics = 789
 patches_num = 2
-batch_size = 16
+batch_size = 32
 ckpt_freq = 2
-learning_rate = 1e-5
+learning_rate = 1e-4
 lastepoch = 0
 
 DEBUG = 0
@@ -171,13 +171,14 @@ def upsample_and_concat(x1, x2, output_channels, in_channels):
 
     return deconv_output
 
-def hist_stretching_layer(x, anchor, channels):
-    M1 = tf.get_variable("fnM1", shape=[anchor, channels])
-    M2 = tf.get_variable("fnM2", shape=[anchor, channels])
-    hidden = tf.einsum("kc,nhwc->knhwc",M1, x)
-    hidden = tf.nn.relu(hidden)
-    hidden = tf.einsum("kc,knhwc->nhwc", M2, hidden)
-    return hidden
+def hist_stretching_layer(x, k, channels):
+    M = tf.get_variable("fnM", shape=[k, channels])
+    result = []
+    for c in range(channels):
+        result.append(x[:,:,:,c])
+        for i in range(k):
+            result[c] += M[i, c] * x[:,:,:,c]**(i+2)
+    return tf.stack(result, axis=3)
 
 def network(input, scope="sid"):
     H = tf.shape(input)[1]
@@ -222,10 +223,7 @@ def network(input, scope="sid"):
         conv10 = slim.conv2d(conv9, 12, [1, 1], rate=1, activation_fn=None, scope='g_conv10')
         out = tf.depth_to_space(conv10, 2)
         
-        inputx2 = tf.image.resize_images(input, [2*H, 2*W])
-        out = out + inputx2
         out = hist_stretching_layer(out, 20, 3)
-        out = tf.minimum(tf.maximum(out, -1.0), 1.0)
 
 #     ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
 #     if ckpt:
@@ -263,15 +261,13 @@ output_patches = network(input_patches)
 out_max = tf.reduce_max(output_patches)
 out_min = tf.reduce_min(output_patches)
 out_image = network(in_image[0:1,:,:,:])[0,:,:,:]
-vgg_o = vgg16(output_patches)
-vgg_g = vgg16(gt_patches)
+debug_in = tf.reduce_mean(in_image[0:1,:,:,:])
 
 o_debug = tf.reduce_mean(output_patches)
+o_img_debug = tf.reduce_mean(out_image)
 i_debug = tf.reduce_mean(input_patches)
 g_debug = tf.reduce_mean(gt_patches)
-# loss1 = tf.reduce_mean(tf.abs(vgg_o[1] - vgg_g[1]))
-# loss2 = tf.reduce_mean(tf.abs(vgg_o[2] - vgg_g[2]))
-loss_dis = distance(vgg_o, vgg_g)
+loss_dis = tf.abs(output_patches- gt_patches)
 G_loss = tf.reduce_mean(loss_dis) #+ loss1 + loss2 #+ tf.reduce_mean(tf.abs(output_patches - gt_patches))
 
 weight = tf.reduce_mean([v for v in tf.trainable_variables() if v.name == "sid/g_conv1_1/weights:0"])
@@ -287,9 +283,8 @@ train_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, "sid")  # 设�
 G_opt = tf.train.AdamOptimizer(learning_rate=lr).minimize(G_loss, var_list=train_vars)   # var_list指定需要优化的变量
 
 saver_sid = tf.train.Saver(tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, "sid"))
-saver_vgg = tf.train.Saver(tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, "vgg_16"))
 sess.run(tf.global_variables_initializer())                                      # 全局变量初始化
-saver_vgg.restore(sess, "vgg_16.ckpt")
+
 
 ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
 if ckpt:
@@ -325,13 +320,13 @@ for epoch in range(lastepoch, 4001):
 #         print(dark_img.shape)
 #         print(gt_img.shape)
 
-        _, G_current, output , weight_f, o_d , i_d, g_d, o_ma, o_mi= sess.run([G_opt, G_loss, out_image, weight, o_debug, i_debug, g_debug, out_max, out_min],
+        _, G_current, output , weight_f, o_d , i_d, g_d, o_ma, o_mi, o_img, d_i= sess.run([G_opt, G_loss, out_image, weight, o_debug, i_debug, g_debug, out_max, out_min, o_img_debug, debug_in],
                                 feed_dict={in_image: dark_img, gt_image:gt_img, lr: learning_rate})
 
         output = np.minimum(np.maximum(output, 0), 1)
         g_loss[batch] = G_current
 
-        print("%d %d Loss=%.5f Time=%.5f Weight=%.5f LossCurrent=%.5f OutputMean=%.5f InputMean=%.5f GTMean=%.5f OMax=%.2f OMin=%.2f" % (epoch, cnt, np.mean(g_loss[np.where(g_loss)]), time.time() - st, weight_f*1e3, G_current, o_d, i_d, g_d, o_ma, o_mi))
+        print("%d %d Loss=%.5f Time=%.5f Weight=%.5f LossCurrent=%.5f OutputMean=%.5f InputMean=%.5f GTMean=%.5f OMax=%.2f OMin=%.2f OIMG=%.2f IIMG=%.2f" % (epoch, cnt, np.mean(g_loss[np.where(g_loss)]), time.time() - st, weight_f*1e3, G_current, o_d, i_d, g_d, o_ma, o_mi, o_img, d_i))
 
     if epoch % save_freq == 0:
         print("saving result " + result_dir + '%04d/%05d_00_train.jpg' % (epoch, batch))
