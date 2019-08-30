@@ -16,11 +16,11 @@ result_dir = './result/'
 dark_img_dir = './images_dark/'
 gt_img_dir = './images_gt/'
 
-save_freq = 4
-train_pics = 789
+save_freq = 1000
+train_pics = 2
 patches_num = 2
 batch_size = 2  # maximum 32
-ckpt_freq = 4
+ckpt_freq = 1000
 learning_rate = 1e-4
 lastepoch = 0
 
@@ -189,6 +189,12 @@ def upsample_and_concat(x1, x2, output_channels, in_channels):
 
     return deconv_output
 
+def factorial(n):
+    if n == 0 or n == 1:
+        return 1.0
+    else:
+        return (n*factorial(n-1))
+    
 def hist_stretching_layer(x, k, channels):
     with tf.variable_scope("hist_stretch", "hist_stretch", reuse=tf.AUTO_REUSE) as sc:
 #         conv1_1 = slim.conv2d(x, 4, [3, 3], rate=1, activation_fn=lrelu, scope='g_conv1_1')
@@ -211,8 +217,12 @@ def hist_stretching_layer(x, k, channels):
         for c in range(channels):
             result.append(M[0, c] * x[:,:,:,c] + b[:,:,:,c])
             for i in range(1, k):
-                result[c] += M[i, c] * x[:,:,:,c]**(i+1)
+                result[c] += M[i, c] * tf.pow(x[:,:,:,c], (i+1))
     return tf.stack(result, axis=3)
+
+# def hist_stretching_layer_relu(x,k,channels):
+#     with tf.variable_scope("hist_stretch", "hist_stretch", reuse=tf.AUTO_REUSE) as sc:
+        
 
 def network(input, scope="sid"):
     H = tf.shape(input)[1]
@@ -300,10 +310,10 @@ gt_image=tf.to_float(gt_image[0])/255.0
 print(in_image,gt_image)
 
 input_patches, gt_patches = generate_batch(patches_num, in_image, gt_image)
-output_patches = hist_stretching_layer(input_patches,20,3)
+output_patches = hist_stretching_layer(input_patches,10,3)
 out_max = tf.reduce_max(output_patches)
 out_min = tf.reduce_min(output_patches)
-out_image = hist_stretching_layer(in_image[0:1,:,:,:], 20, 3)[0,:,:,:]
+out_image = hist_stretching_layer(in_image[0:1,:,:,:], 10, 3)[0,:,:,:]
 debug_in = tf.reduce_mean(in_image[0:1,:,:,:])
 
 o_debug = tf.reduce_mean(output_patches)
@@ -342,10 +352,10 @@ if not os.path.isdir(result_dir):
 
 
 
-for epoch in range(lastepoch, 4001):
+for epoch in range(lastepoch, 40001):
     cnt = 0
     if epoch > 200:
-        learning_rate = 1e-6
+        learning_rate = 1e-4
     batches_num = train_pics//batch_size
     for batch in range(batches_num):#np.random.permutation(train_pics):
         st = time.time()
