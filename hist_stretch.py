@@ -19,7 +19,7 @@ gt_img_dir = './images_gt/'
 save_freq = 4
 train_pics = 789
 patches_num = 2
-batch_size = 128  # maximum 32
+batch_size = 2  # maximum 32
 ckpt_freq = 4
 learning_rate = 1e-4
 lastepoch = 0
@@ -191,11 +191,25 @@ def upsample_and_concat(x1, x2, output_channels, in_channels):
 
 def hist_stretching_layer(x, k, channels):
     with tf.variable_scope("hist_stretch", "hist_stretch", reuse=tf.AUTO_REUSE) as sc:
+#         conv1_1 = slim.conv2d(x, 4, [3, 3], rate=1, activation_fn=lrelu, scope='g_conv1_1')
+#         conv1_2 = slim.conv2d(conv1_1, 4, [3, 3], rate=1, activation_fn=lrelu, scope='g_conv1_2')
+#         conv1_3 = slim.conv2d(conv1_2, 8, [3, 3], rate=1, activation_fn=lrelu, scope='g_conv1_3')
+#         conv1_4 = slim.conv2d(conv1_3, 16, [3, 3], rate=1, activation_fn=lrelu, scope='g_conv1_4')
+#         conv1_5 = slim.conv2d(conv1_4, 32, [3, 3], rate=1, activation_fn=lrelu, scope='g_conv1_5')
+#         conv1_6 = slim.conv2d(conv1_5, 3, [3, 3], rate=1, activation_fn=lrelu, scope='g_conv1_6')
+#         M = tf.reduce_max(conv1_6, [1,2])
+        
+#         conv2_1 = slim.conv2d(x, 4, [3, 3], rate=1, activation_fn=lrelu, scope='g_conv2_1')
+#         conv2_2 = slim.conv2d(conv2_1, 4, [3, 3], rate=1, activation_fn=lrelu, scope='g_conv2_2')
+#         conv2_3 = slim.conv2d(conv2_2, 8, [3, 3], rate=1, activation_fn=lrelu, scope='g_conv2_3')
+#         conv2_4 = slim.conv2d(conv2_3, 16, [3, 3], rate=1, activation_fn=lrelu, scope='g_conv2_4')
+#         conv2_5 = slim.conv2d(conv2_4, 32, [3, 3], rate=1, activation_fn=lrelu, scope='g_conv2_5')
+
         M = tf.get_variable("fnM", shape=[k, channels])
-        b = tf.get_variable("b",shape=[batch_size*patches_num,1,1])
+        b = tf.get_variable("b",shape=[1,1,1,channels])
         result = []
         for c in range(channels):
-            result.append(M[0, c] * x[:,:,:,c] + b)
+            result.append(M[0, c] * x[:,:,:,c] + b[:,:,:,c])
             for i in range(1, k):
                 result[c] += M[i, c] * x[:,:,:,c]**(i+1)
     return tf.stack(result, axis=3)
