@@ -224,12 +224,45 @@ def hist_stretching_layer(x, k, channels):
 
 def hist_stretching_layer_relu(x,k,channels):
     with tf.variable_scope("hist_stretch1", "hist_stretch1", reuse=tf.AUTO_REUSE) as sc:
-        a0 = tf.get_variable("a0", shape=[k, channels])
-        b0 = tf.get_variable("b0", shape=[1,1,1,k,channels])
-        a1 = tf.get_variable("a1", shape=[k, channels])
-        b1 = tf.get_variable("b1", shape=[1,1,1,channels])
-        hidden = tf.nn.relu(tf.einsum("kc,nhwc->nhwkc", a0, x) + b0)
-        result = tf.nn.relu(tf.einsum("kc,nhwkc->nhwc", a1, hidden) + b1)
+        W0_a0 = tf.get_variable("W0_a0", shape=[k, channels])
+        W0_b0 = tf.get_variable("W0_b0", shape=[1,1,1,k,channels])
+        W0_a1 = tf.get_variable("W0_a1", shape=[k, channels])
+        W0_b1 = tf.get_variable("W0_b1", shape=[1,1,1,k, channels])
+        
+        W0_hidden = tf.nn.relu(tf.einsum("kc,nhwc->nhwkc", W0_a0, x) + W0_b0)
+        W0_out = tf.nn.relu(tf.einsum("kc,nhwkc->nhwkc", W0_a1, W0_hidden) + W0_b1)
+        W0 = tf.reduce_mean(W0_out, [1,2]) # shape: [n,k,c]
+        
+        B0_a0 = tf.get_variable("B0_a0", shape=[k, channels])
+        B0_b0 = tf.get_variable("B0_b0", shape=[1,1,1,k,channels])
+        B0_a1 = tf.get_variable("B0_a1", shape=[k, channels])
+        B0_b1 = tf.get_variable("B0_b1", shape=[1,1,1,k, channels])
+        
+        B0_hidden = tf.nn.relu(tf.einsum("kc,nhwc->nhwkc", B0_a0, x) + B0_b0)
+        B0_out = tf.nn.relu(tf.einsum("kc,nhwkc->nhwkc", B0_a1, B0_hidden) + B0_b1)
+        B0 = tf.expand_dims(tf.expand_dims(tf.reduce_mean(B0_out, [1,2]),1),1) # shape: [n,1,1,k,c]
+        
+        W1_a0 = tf.get_variable("W1_a0", shape=[k, channels])
+        W1_b0 = tf.get_variable("W1_b0", shape=[1,1,1,k,channels])
+        W1_a1 = tf.get_variable("W1_a1", shape=[k, channels])
+        W1_b1 = tf.get_variable("W1_b1", shape=[1,1,1,k, channels])
+        
+        W1_hidden = tf.nn.relu(tf.einsum("kc,nhwc->nhwkc", W1_a0, x) + W1_b0)
+        W1_out = tf.nn.relu(tf.einsum("kc,nhwkc->nhwkc", W1_a1, W1_hidden) + W1_b1)
+        W1 = tf.reduce_mean(W1_out, [1,2]) # shape: [n,k,c]
+        
+        B1_a0 = tf.get_variable("B1_a0", shape=[k, channels])
+        B1_b0 = tf.get_variable("B1_b0", shape=[1,1,1,k,channels])
+        B1_a1 = tf.get_variable("B1_a1", shape=[k, channels])
+        B1_b1 = tf.get_variable("B1_b1", shape=[1,1,1, channels])
+        
+        B1_hidden = tf.nn.relu(tf.einsum("kc,nhwc->nhwkc", B1_a0, x) + B1_b0)
+        B1_out = tf.nn.relu(tf.einsum("kc,nhwkc->nhwc", B1_a1, B1_hidden) + B1_b1)
+        B1 = tf.expand_dims(tf.expand_dims(tf.reduce_mean(B1_out, [1,2]),1),1) # shape: [n,1,1,c]
+        
+        
+        hidden = tf.nn.relu(tf.einsum("nkc,nhwc->nhwkc", W0, x) + B0)
+        result = tf.nn.relu(tf.einsum("nkc,nhwkc->nhwc", W1, hidden) + B1)
         return result
 
 def network(input, scope="sid"):
